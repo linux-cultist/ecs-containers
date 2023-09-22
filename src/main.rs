@@ -1,5 +1,3 @@
-use std::{sync::mpsc, thread};
-
 use aws_sdk_ecs::Client;
 use aws_types::region::Region;
 use tokio::task::{self};
@@ -85,7 +83,7 @@ async fn list_containers(
                     let container_id = container_arn.rsplit('/').next().unwrap_or("");
                     if !container_name.starts_with("ecs-service-connect") {
                         let formatted_string = format!(
-                            "{:<20}{:<30}{:<26}{:>40}",
+                            "{:<20}{:<30}{:<30}{:>40}",
                             region.to_string(),
                             cluster_name,
                             container_name,
@@ -102,7 +100,7 @@ async fn list_containers(
 
 pub fn print_result_headers() {
     println!(
-        "{:<20}{:<30}{:>8}{:>37}",
+        "{:<20}{:<30}{:>8}{:>41}",
         "Region", "Cluster", "Container", "Container ID"
     );
     println!("--------------------------------------------------------------------------------------------------------------------");
