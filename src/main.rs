@@ -1,62 +1,45 @@
+use std::error::Error;
 use aws_sdk_ecs::Client;
 use aws_types::region::Region;
-use tokio::task::{self};
-
-#[derive(Debug)]
-pub enum MyError {
-    Aws(aws_sdk_ecs::Error),
-    Task(tokio::task::JoinError),
-}
-
-impl From<aws_sdk_ecs::Error> for MyError {
-    fn from(err: aws_sdk_ecs::Error) -> Self {
-        MyError::Aws(err)
-    }
-}
-
-impl From<tokio::task::JoinError> for MyError {
-    fn from(err: tokio::task::JoinError) -> Self {
-        MyError::Task(err)
-    }
-}
 
 #[tokio::main]
-async fn main() -> Result<(), MyError> {
-    let mut handles: Vec<task::JoinHandle<Result<Vec<String>, aws_sdk_ecs::Error>>> = Vec::new();
+async fn main() -> Result<(), Box<dyn Error>> {
+
     let regions = vec!["eu-west-1", "eu-central-1"];
 
-    for region_name in &regions {
-        let region_name = region_name.to_string();
-        let handle = task::spawn(async move {
-            let region = Region::new(region_name);
-            let shared_config = aws_config::from_env().region(region.clone()).load().await;
-            let client = Client::new(&shared_config);
-            list_containers(&client, region).await
-        });
+    let handles: Vec<_> = regions.into_iter().map(|region| {
+        tokio::task::spawn(fetch_containers_for_region(region))
+    }).collect();
 
-        handles.push(handle);
-    }
-
-    print_result_headers();
+    let mut all_containers = Vec::new();
 
     for handle in handles {
-        handle.await??.iter().for_each(|line| println!("{}", line));
+        let result = handle.await?;
+        all_containers.append(&mut result.unwrap());
     }
 
+    print_containers(all_containers);
+
     Ok(())
+
 }
 
-async fn list_containers(
-    client: &Client,
-    region: Region,
-) -> Result<Vec<String>, aws_sdk_ecs::Error> {
+async fn fetch_containers_for_region(region_str: &str) -> Option<Vec<String>> {
+    println!("Fetching containers for region: {}", region_str);
+    let region = Region::new(region_str.to_string());
+    let shared_config = aws_config::from_env().region(region.clone()).load().await;
+    let client = Client::new(&shared_config);
+    list_containers(&client, region).await
+}
+
+async fn list_containers(client: &Client, region: Region) -> Option<Vec<String>> {
     let mut result = Vec::new();
-    let resp = client.list_clusters().send().await?;
+    let resp = client.list_clusters().send().await.unwrap();
     let clusters = client
         .describe_clusters()
         .set_clusters(resp.cluster_arns)
         .send()
-        .await?;
+        .await.unwrap();
 
     for cluster in clusters.clusters().unwrap() {
         // List tasks for the current cluster
@@ -64,7 +47,7 @@ async fn list_containers(
             .list_tasks()
             .set_cluster(cluster.cluster_name.clone())
             .send()
-            .await?;
+            .await.unwrap();
 
         let task_arns = tasks.task_arns().unwrap_or_default();
         if !task_arns.is_empty() {
@@ -73,7 +56,7 @@ async fn list_containers(
                 .set_tasks(Some(task_arns.into()))
                 .set_cluster(cluster.cluster_name.clone())
                 .send()
-                .await?;
+                .await.unwrap();
 
             for task in task_details.tasks().unwrap_or_default() {
                 for container in task.containers().unwrap_or_default() {
@@ -95,13 +78,18 @@ async fn list_containers(
             }
         }
     }
-    Ok(result)
+    Some(result)
 }
 
-pub fn print_result_headers() {
+pub fn print_containers(containers: Vec<String>) {
     println!(
         "{:<20}{:<30}{:>8}{:>41}",
         "Region", "Cluster", "Container", "Container ID"
     );
     println!("--------------------------------------------------------------------------------------------------------------------");
+
+    for container in containers {
+        println!("{}", container);
+    }
+
 }
