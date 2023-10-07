@@ -1,10 +1,10 @@
 use aws_sdk_ecs::Client;
 use aws_types::region::Region;
 use tokio::task::{JoinHandle, spawn};
+use anyhow::Result;
 
 #[tokio::main]
 async fn main() {
-
     let regions = vec!["eu-west-1", "eu-central-1"];
     let handles: Vec<JoinHandle<anyhow::Result<Vec<String>>>> = regions
         .iter()
@@ -28,7 +28,7 @@ async fn main() {
     }
 }
 
-async fn fetch_containers(region_str: &str) -> anyhow::Result<Vec<String>> {
+async fn fetch_containers(region_str: &str) -> Result<Vec<String>> {
     let region = Region::new(region_str.to_string());
     let shared_config = aws_config::from_env().region(region.clone()).load().await;
     let client = Client::new(&shared_config);
