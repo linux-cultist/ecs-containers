@@ -1,39 +1,42 @@
 use std::error::Error;
 use aws_sdk_ecs::Client;
 use aws_types::region::Region;
+use futures::future;
+use tokio::task::JoinHandle;
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
 
     let regions = vec!["eu-west-1", "eu-central-1"];
 
-    let handles: Vec<_> = regions.into_iter().map(|region| {
-        tokio::task::spawn(fetch_containers_for_region(region))
-    }).collect();
+    let handles: Vec<JoinHandle<Vec<String>>> = regions
+        .iter()
+        .cloned()
+        .map(|region| tokio::task::spawn(fetch_containers_for_region(&region)))
+        .collect();
 
-    let mut all_containers = Vec::new();
+    let results: Vec<String> = future::join_all(handles)
+        .await
+        .into_iter()
+        .filter_map(Result::ok)  // filter out the errors
+        .flat_map(|vec| vec.into_iter())
+        .collect();
 
-    for handle in handles {
-        let result = handle.await?;
-        all_containers.append(&mut result.unwrap());
-    }
-
-    print_containers(all_containers);
+    print_containers(results);
 
     Ok(())
 
+
 }
 
-async fn fetch_containers_for_region(region_str: &str) -> Option<Vec<String>> {
+async fn fetch_containers_for_region(region_str: &str) -> Vec<String> {
     println!("Fetching containers for region: {}", region_str);
     let region = Region::new(region_str.to_string());
     let shared_config = aws_config::from_env().region(region.clone()).load().await;
     let client = Client::new(&shared_config);
-    list_containers(&client, region).await
-}
-
-async fn list_containers(client: &Client, region: Region) -> Option<Vec<String>> {
     let mut result = Vec::new();
+
     let resp = client.list_clusters().send().await.unwrap();
     let clusters = client
         .describe_clusters()
@@ -78,8 +81,11 @@ async fn list_containers(client: &Client, region: Region) -> Option<Vec<String>>
             }
         }
     }
-    Some(result)
+    result
+
+
 }
+
 
 pub fn print_containers(containers: Vec<String>) {
     println!(

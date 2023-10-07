@@ -6,10 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aws-config = "*"
-aws-types = "*"
-aws-sdk-ecs = "*"
-tokio = { version = "1", features = ["full"] }
-ratatui = { version = "*", features = ["all-widgets"] }
-anyhow = "*"
-crossterm = "*"
+aws-config = "0.56.1"
+aws-types = "0.56.1"
+aws-sdk-ecs = "0.33.0"
+tokio = { version = "1.32.0", features = ["full"] }
+ratatui = { version = "0.23.0", features = ["all-widgets"] }
+anyhow = "1.0.75"
+crossterm = "0.27.0"
+futures = "0.3.28"
