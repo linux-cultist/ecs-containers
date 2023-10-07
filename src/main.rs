@@ -1,8 +1,6 @@
-use std::error::Error;
 use aws_sdk_ecs::Client;
 use aws_types::region::Region;
 use tokio::task::{JoinHandle, spawn};
-
 
 #[tokio::main]
 async fn main() {
