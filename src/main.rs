@@ -1,71 +1,72 @@
 use std::error::Error;
 use aws_sdk_ecs::Client;
 use aws_types::region::Region;
-use futures::future;
-use tokio::task;
+use tokio::task::{JoinHandle, spawn};
 
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() {
 
     let regions = vec!["eu-west-1", "eu-central-1"];
-
-    let handles: Vec<task::JoinHandle<Vec<String>>> = regions
+    let handles: Vec<JoinHandle<anyhow::Result<Vec<String>>>> = regions
         .iter()
         .cloned()
-        .map(|region| task::spawn(fetch_containers(&region)))
+        .map(|region| spawn(fetch_containers(&region)))
         .collect();
 
-    let results: Vec<String> = future::join_all(handles)
-        .await
-        .into_iter()
-        .filter_map(Result::ok)  // filter out the errors
-        .flat_map(|vec| vec.into_iter())
-        .collect();
+    print_result_header();
 
-    print_containers(results);
-
-    Ok(())
-
-
+    for handle in handles {
+        match handle.await {
+            Ok(results) => {
+                if let Ok(containers) = results {
+                    containers
+                        .iter()
+                        .for_each(|container| println!("{}", container));
+                }
+            },
+            Err(e) => { println!("{}", e); },
+        }
+    }
 }
 
-async fn fetch_containers(region_str: &str) -> Vec<String> {
+async fn fetch_containers(region_str: &str) -> anyhow::Result<Vec<String>> {
     let region = Region::new(region_str.to_string());
     let shared_config = aws_config::from_env().region(region.clone()).load().await;
     let client = Client::new(&shared_config);
     let mut result = Vec::new();
 
-    let resp = client.list_clusters().send().await.unwrap();
+    let resp = client.list_clusters().send().await?;
+
     let clusters = client
         .describe_clusters()
         .set_clusters(resp.cluster_arns)
         .send()
-        .await.unwrap();
+        .await?;
 
-    for cluster in clusters.clusters().unwrap() {
+    for cluster in clusters.clusters().ok_or(anyhow::anyhow!("No clusters found"))? {
         // List tasks for the current cluster
         let tasks = client
             .list_tasks()
             .set_cluster(cluster.cluster_name.clone())
             .send()
-            .await.unwrap();
+            .await?;
 
-        let task_arns = tasks.task_arns().unwrap_or_default();
+        let task_arns = tasks.task_arns().ok_or(anyhow::anyhow!("No tasks found."))?;
         if !task_arns.is_empty() {
             let task_details = client
                 .describe_tasks()
                 .set_tasks(Some(task_arns.into()))
                 .set_cluster(cluster.cluster_name.clone())
                 .send()
-                .await.unwrap();
+                .await?;
 
-            for task in task_details.tasks().unwrap_or_default() {
+            for task in task_details.tasks().ok_or(anyhow::anyhow!("No task details found."))? {
                 for container in task.containers().unwrap_or_default() {
                     let container_name = container.name().unwrap_or_default();
                     let cluster_name = cluster.cluster_name().unwrap_or_default();
                     let container_arn = container.task_arn().unwrap_or_default();
-                    let container_id = container_arn.rsplit('/').next().unwrap_or("");
+                    let container_id = container_arn.rsplit('/').next().unwrap_or_default();
                     if !container_name.starts_with("ecs-service-connect") {
                         let formatted_string = format!(
                             "{:<20}{:<30}{:<30}{:>40}",
@@ -80,21 +81,16 @@ async fn fetch_containers(region_str: &str) -> Vec<String> {
             }
         }
     }
-    result
+    Ok(result)
 
 
 }
 
-
-pub fn print_containers(containers: Vec<String>) {
+fn print_result_header() {
     println!(
         "{:<20}{:<30}{:>8}{:>41}",
         "Region", "Cluster", "Container", "Container ID"
     );
     println!("--------------------------------------------------------------------------------------------------------------------");
-
-    for container in containers {
-        println!("{}", container);
-    }
-
 }
+
