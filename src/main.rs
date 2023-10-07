@@ -2,7 +2,7 @@ use std::error::Error;
 use aws_sdk_ecs::Client;
 use aws_types::region::Region;
 use futures::future;
-use tokio::task::JoinHandle;
+use tokio::task;
 
 
 #[tokio::main]
@@ -10,10 +10,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let regions = vec!["eu-west-1", "eu-central-1"];
 
-    let handles: Vec<JoinHandle<Vec<String>>> = regions
+    let handles: Vec<task::JoinHandle<Vec<String>>> = regions
         .iter()
         .cloned()
-        .map(|region| tokio::task::spawn(fetch_containers_for_region(&region)))
+        .map(|region| task::spawn(fetch_containers(&region)))
         .collect();
 
     let results: Vec<String> = future::join_all(handles)
@@ -30,8 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 }
 
-async fn fetch_containers_for_region(region_str: &str) -> Vec<String> {
-    println!("Fetching containers for region: {}", region_str);
+async fn fetch_containers(region_str: &str) -> Vec<String> {
     let region = Region::new(region_str.to_string());
     let shared_config = aws_config::from_env().region(region.clone()).load().await;
     let client = Client::new(&shared_config);
