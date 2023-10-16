@@ -2,6 +2,7 @@ use aws_sdk_ecs::Client;
 use aws_types::region::Region;
 use tokio::task::{JoinHandle, spawn};
 use anyhow::Result;
+use aws_sdk_ecs::types::Container;
 
 #[tokio::main]
 async fn main() {
@@ -28,6 +29,16 @@ async fn main() {
     }
 }
 
+async fn find_version(container: &Container) -> String {
+
+    if container.image().unwrap_or_default().contains(":") {
+        let image_version = container.image().unwrap_or_default().split(":").last().unwrap_or_default();
+        container.name().unwrap_or_default().to_owned() + " (" + image_version + ")"
+    } else {
+        container.name().unwrap_or_default().to_owned()
+    }
+
+}
 async fn fetch_containers(region_str: &str) -> Result<Vec<String>> {
     let region = Region::new(region_str.to_string());
     let shared_config = aws_config::from_env().region(region.clone()).load().await;
@@ -61,13 +72,13 @@ async fn fetch_containers(region_str: &str) -> Result<Vec<String>> {
 
             for task in task_details.tasks().ok_or(anyhow::anyhow!("No task details found."))? {
                 for container in task.containers().unwrap_or_default() {
-                    let container_name = container.name().unwrap_or_default();
+                    let container_name = find_version(container).await;
                     let cluster_name = cluster.cluster_name().unwrap_or_default();
                     let container_arn = container.task_arn().unwrap_or_default();
                     let container_id = container_arn.rsplit('/').next().unwrap_or_default();
                     if !container_name.starts_with("ecs-service-connect") {
                         let formatted_string = format!(
-                            "{:<20}{:<30}{:<30}{:>40}",
+                            "{:<20}{:<30}{:<40}{:>40}",
                             region.to_string(),
                             cluster_name,
                             container_name,
@@ -86,9 +97,9 @@ async fn fetch_containers(region_str: &str) -> Result<Vec<String>> {
 
 fn print_result_header() {
     println!(
-        "{:<20}{:<30}{:>8}{:>41}",
+        "{:<20}{:<19}{:>20}{:>51}",
         "Region", "Cluster", "Container", "Container ID"
     );
-    println!("--------------------------------------------------------------------------------------------------------------------");
+    println!("----------------------------------------------------------------------------------------------------------------------------------");
 }
 
